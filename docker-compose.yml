@@ -1,0 +1,59 @@
+services:
+  source_db:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_SOURCE_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SOURCE_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_SOURCE_DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - source_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_worker_processes=10", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "shared_preload_libraries=pglogical"]
+
+  target_db:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_TARGET_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_TARGET_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_TARGET_DB_NAME}
+    ports:
+      - "5433:5432"
+    volumes:
+      - target_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_worker_processes=10", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "shared_preload_libraries=pglogical"]
+
+  generate_data:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - NUM_RECORDS=${NUM_RECORDS:-5000}
+    depends_on:
+      - source_db
+      - target_db
+    volumes:
+      - ./scripts:/app/scripts
+
+  cdc_scripts: 
+    build: .
+    env_file:
+      - .env
+    environment:
+      - NUM_RECORDS=${NUM_RECORDS:-10}
+    depends_on:
+      - source_db
+    volumes:
+      - ./scripts:/app/scripts
+
+volumes:
+  source_data:
+  target_data:
