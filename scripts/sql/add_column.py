@@ -1,51 +1,92 @@
 import psycopg2
 import random
 import logging
-from utils import connect_to_db
-from utils import logging_setup
-from utils import find_tables
+from utils import connect_to_db, logging_setup, find_tables
 
 logging_setup()
 
 
-def add_column_to_random_table(conn):
+def get_random_table(conn):
     with conn.cursor() as cur:
-        # Query to get all user-created tables in the public schema
         cur.execute(find_tables())
         tables = cur.fetchall()
-
         if not tables:
-            logging.info("No tables found to add a column.")
-            return
+            return None
+        return random.choice(tables)[0]
 
-        # Randomly select one table from the list
-        table_to_alter = random.choice(tables)[0]
 
-        # Check if the "subtype" column already exists
+def table_exists(conn, table_name):
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT to_regclass('public.{table_name}')")
+        return cur.fetchone()[0] is not None
+
+
+def column_exists(conn, table_name, column_name):
+    with conn.cursor() as cur:
         cur.execute(
             f"""
             SELECT column_name FROM information_schema.columns 
-            WHERE table_name = '{table_to_alter}' AND column_name = 'subtype';
+            WHERE table_name = '{table_name}' AND column_name = '{column_name}';
         """
         )
-        column_exists = cur.fetchone()
+        return cur.fetchone() is not None
 
-        if column_exists:
-            logging.info(f"Column 'subtype' already exists in table: {table_to_alter}")
-        else:
-            # Add the 'subtype' column to the selected table
-            cur.execute(
-                f"ALTER TABLE {table_to_alter} ADD COLUMN subtype VARCHAR(255);"
-            )
-            logging.info(f"Added column 'subtype' to table: {table_to_alter}")
 
-    conn.commit()
+def add_column_to_table(conn, table_name, column_name):
+    if not table_exists(conn, table_name):
+        logging.warning(f"Table '{table_name}' does not exist in this database.")
+        return False
+
+    if column_exists(conn, table_name, column_name):
+        logging.info(f"Column '{column_name}' already exists in table: {table_name}")
+        return True
+
+    with conn.cursor() as cur:
+        cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} VARCHAR(255);")
+        conn.commit()
+        logging.info(f"Added column '{column_name}' to table: {table_name}")
+        return True
+
+
+def add_column_to_both_databases(source_conn, target_conn):
+    # Get a random table from the SOURCE database
+    table_to_alter = get_random_table(source_conn)
+
+    if table_to_alter is None:
+        logging.info("No tables found in SOURCE database to add a column.")
+        return
+
+    column_name = "subtype"
+
+    # Add column to SOURCE database
+    source_success = add_column_to_table(source_conn, table_to_alter, column_name)
+
+    # Add column to TARGET database
+    target_success = add_column_to_table(target_conn, table_to_alter, column_name)
+
+    if source_success and target_success:
+        logging.info(
+            f"Successfully added column '{column_name}' to table '{table_to_alter}' in both databases."
+        )
+    elif source_success:
+        logging.warning(
+            f"Added column '{column_name}' to table '{table_to_alter}' only in SOURCE database."
+        )
+    elif target_success:
+        logging.warning(
+            f"Added column '{column_name}' to table '{table_to_alter}' only in TARGET database."
+        )
+    else:
+        logging.error(
+            f"Failed to add column '{column_name}' to table '{table_to_alter}' in both databases."
+        )
 
 
 if __name__ == "__main__":
-    conn = connect_to_db("SOURCE")
-    add_column_to_random_table(conn)
-    conn.close()
-    conn = connect_to_db("TARGET")
-    add_column_to_random_table(conn)
-    conn.close()
+    source_conn = connect_to_db("SOURCE")
+    target_conn = connect_to_db("TARGET")
+
+    add_column_to_both_databases(source_conn, target_conn)
+
+    source_conn.close()
+    target_conn.close()

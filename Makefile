@@ -47,6 +47,10 @@ drop-table:
 add-column:
 	$(DOCKER_COMPOSE) run --rm cdc_scripts python /app/scripts/sql/add_column.py
 
+# Drops a column to a table from the source database
+drop-column:
+	$(DOCKER_COMPOSE) run --rm cdc_scripts python /app/scripts/sql/drop_column.py
+
 # Enables CDC with pglogical for both nodes
 cdc-pglogical:
 	$(DOCKER_COMPOSE) run --rm cdc_scripts python /app/scripts/cdc_pglogical_plugin.py
